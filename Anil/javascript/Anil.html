@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Globe with Three.js and Country Data</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.2/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-geo/3.0.1/d3-geo.min.js"></script>
+    <script>
+        // Initialize scene, camera, and renderer
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Create the globe
+        const geometry = new THREE.SphereGeometry(5, 64, 64);
+        const textureLoader = new THREE.TextureLoader();
+        const material = new THREE.MeshStandardMaterial({
+            map: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-day.jpg'),
+            roughness: 0.8,
+            metalness: 0.2
+        });
+        const globe = new THREE.Mesh(geometry, material);
+        scene.add(globe);
+
+        camera.position.z = 10;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+        scene.add(ambientLight);
+        const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+        pointLight.position.set(10, 10, 10);
+        scene.add(pointLight);
+
+        // Rotation control
+        let rotationSpeed = 0.01;
+        let isPaused = false;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!isPaused) {
+                globe.rotation.y += rotationSpeed;
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Load country data
+        let countryData = [];
+        fetch('countries.json')
+            .then(response => response.json())
+            .then(data => {
+                countryData = data;
+                console.log('Country Data:', countryData); // Print country data to console
+            })
+            .catch(error => {
+                console.error('Error loading country data:', error);
+            });
+
+        // Handle mouse click
+        document.addEventListener('click', (event) => {
+            if (isPaused) return;
+
+            isPaused = true; // Pause rotation
+            setTimeout(() => {
+                isPaused = false; // Resume rotation
+            }, 3000); // Resume after 3 seconds
+
+            const mouse = new THREE.Vector2();
+            const raycaster = new THREE.Raycaster();
+
+            // Normalize mouse coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Create raycaster
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(globe);
+
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                const latLng = getLatLngFromPoint(point);
+
+                // Find the closest country by latitude and longitude
+                const closestCountry = findClosestCountry(latLng, countryData);
+
+                if (closestCountry) {
+                    alert("Country: " + closestCountry.name);
+                } else {
+                    alert("Country not found.");
+                }
+            }
+        });
+
+        // Convert 3D point to latitude and longitude
+        function getLatLngFromPoint(point) {
+            const radius = globe.geometry.parameters.radius;
+            const spherical = new THREE.Spherical();
+            spherical.setFromVector3(point.normalize().multiplyScalar(radius));
+
+            const lat = (Math.PI / 2 - spherical.phi) * (180 / Math.PI);
+            let lng = spherical.theta * (180 / Math.PI) - 180;
+
+            // Clamp longitude to the range [-180, 180]
+            lng = Math.max(-180, Math.min(180, lng));
+
+            return { lat, lng };
+        }
+
+        // Find the closest country by latitude and longitude
+        function findClosestCountry(latLng, countries) {
+            let closestCountry = null;
+            let minDistance = Infinity;
+
+            countries.forEach(country => {
+                const distance = getDistance(latLng, country);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestCountry = country;
+                }
+            });
+
+            return closestCountry;
+        }
+
+        // Calculate distance between two lat/lng points in kilometers
+        function getDistance(latLng1, latLng2) {
+            const R = 6371; // Radius of the Earth in kilometers
+            const dLat = (latLng2.lat - latLng1.lat) * (Math.PI / 180);
+            const dLng = (latLng2.lng - latLng1.lng) * (Math.PI / 180);
+            const a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(latLng1.lat * (Math.PI / 180)) * Math.cos(latLng2.lat * (Math.PI / 180)) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distance = R * c; // Distance in kilometers
+            return distance;
+        }
+
+        // Resize listener
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+        });
+    </script>
+</body>
+</html>
